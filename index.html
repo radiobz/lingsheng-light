@@ -331,6 +331,9 @@ function splitSentences(text){
 
 /* ========== 6. 合成引擎（浏览器直连微软 Edge TTS） ========== */
 const EDGE_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+// 可选：配置 Cloudflare Worker 代理后（见 README），把下面改为 'https://你的子域.workers.dev/ws'
+// 留空则浏览器直连微软端点。
+let EDGE_PROXY = '';
 
 function findAudioHeaderEnd(buf){
   // 查找 "Path: audio" 之后第一个 \r\n\r\n 的位置，其后为音频二进制
@@ -344,7 +347,10 @@ function findAudioHeaderEnd(buf){
 
 function synthChunk(text, voiceId, rate, pitch, volume){
   const requestId = uuid();
-  const wsUrl = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${EDGE_TOKEN}&ConnectionId=${requestId}`;
+  const qs = `TrustedClientToken=${EDGE_TOKEN}&ConnectionId=${requestId}`;
+  const wsUrl = EDGE_PROXY
+    ? EDGE_PROXY + (EDGE_PROXY.includes('?') ? '&' : '?') + qs
+    : `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?${qs}`;
   return new Promise((resolve, reject)=>{
     let ws;
     try { ws = new WebSocket(wsUrl); } catch(e){ reject(new Error('浏览器不支持 WebSocket')); return; }
