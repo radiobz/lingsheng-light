@@ -637,16 +637,27 @@ async function importTxt(f){
   toast(`已导入 ${text.length} 字 · 约 ${splitSentences(text).length} 句`);
 }
 
+let _pdfjsP=null;
+function ensurePdfjs(){
+  if(_pdfjsP) return _pdfjsP;
+  _pdfjsP=new Promise((res,rej)=>{
+    if(window.pdfjsLib) return res();
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+    s.onload=()=>{
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      res();
+    };
+    s.onerror=()=>{ _pdfjsP=null; rej(new Error('PDF 解析库加载失败，请检查网络')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsP;
+}
+
 async function importPdf(f){
   const buf=await f.arrayBuffer();
-  let pdfjs=window.pdfjsLib;
-  if(!pdfjs){
-    const mod=await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs');
-    pdfjs=mod.default;
-    pdfjs.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
-    window.pdfjsLib=pdfjs;
-  }
-  const doc=await pdfjs.getDocument({data:buf}).promise;
+  await ensurePdfjs();
+  const doc=await window.pdfjsLib.getDocument({data:buf}).promise;
   let out='';
   for(let p=1;p<=doc.numPages;p++){
     const page=await doc.getPage(p);
