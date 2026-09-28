@@ -93,6 +93,9 @@ textarea:focus{border-color:var(--pri2)}
 .resbox audio{width:100%;height:42px}
 .resbtns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .resbtns .btn{flex:1;min-width:120px}
+.synthrow{display:flex;gap:8px;align-items:stretch}
+.synthrow .synthbtn{flex:1}
+.synthrow #btnSpeak{flex:0 0 auto;margin-top:6px;padding:0 14px;border:1px solid var(--line);color:var(--mut);border-radius:12px;background:transparent;cursor:pointer;font-size:14px}
 .license{font-size:11px;color:var(--mut);text-align:center;margin-top:34px;line-height:1.8}
 .toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(20px);background:#24324a;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:99;box-shadow:0 6px 20px rgba(0,0,0,.18)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -154,7 +157,10 @@ textarea:focus{border-color:var(--pri2)}
       <label>音量 <span id="vVal">100%</span></label>
       <input type="range" id="volume" min="50" max="150" step="5" value="100">
     </div>
-    <button class="synthbtn" id="synth">开始合成</button>
+    <div class="synthrow">
+      <button class="synthbtn" id="synth">开始合成</button>
+      <button class="btn ghost" id="btnSpeak">内置语音播放</button>
+    </div>
     <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
     <div class="status" id="status"></div>
     <div class="resbox" id="resbox">
@@ -163,7 +169,6 @@ textarea:focus{border-color:var(--pri2)}
         <button class="btn primary" id="dlMp3">下载 MP3</button>
         <button class="btn primary" id="dlWav">下载 WAV</button>
         <button class="btn ghost" id="dlSrt">下载字幕 SRT</button>
-        <button class="btn ghost" id="btnSpeak">内置语音播放</button>
       </div>
       <div class="hint">情绪通过语速/音调/音量自然表达 · 支持同时生成字幕 · 若在线通道被网络限制，可用「内置语音播放」应急</div>
     </div>
@@ -583,7 +588,7 @@ async function doSynthesize(){
     prog.classList.remove('show');
   }catch(err){
     status.className='status err';
-    status.textContent = '合成失败：' + err.message + '（若为网络/风控限制，可点击下方「内置语音播放」应急）';
+    status.textContent = '合成失败：' + err.message + '（若为网络/风控限制，可点击「内置语音播放」应急）';
     prog.classList.remove('show');
   }finally{
     S.busy = false;
