@@ -116,11 +116,13 @@ textarea:focus{border-color:var(--pri2)}
     <h2><span class="n">1</span>输入文字</h2>
     <textarea id="text" placeholder="在这里输入要转成语音的文字……&#10;支持中文、英文，长文本会自动分句合成。"></textarea>
     <div class="toolbar">
+      <button class="btn primary" id="btnImport">导入文件</button>
+      <input type="file" id="textFile" accept=".txt,.pdf,.md" hidden>
       <button class="btn ghost" id="btnSample">示例文本</button>
       <button class="btn ghost" id="btnClear">清空</button>
       <span class="count"><span id="charCount">0</span> 字 · 约 <span id="timeEst">0</span> 分钟</span>
     </div>
-    <div class="chips"><span class="chip">.txt 直接粘贴</span><span class="chip">长文本自动分句</span><span class="chip">并发合成更快速</span></div>
+    <div class="chips"><span class="chip">支持 .txt / .pdf 直接导入</span><span class="chip">长文本自动分句</span><span class="chip">并发合成更快速</span></div>
   </div>
 
   <!-- 中：音色 + 匹配 -->
@@ -609,6 +611,53 @@ $('btnSample').onclick=()=>{
   S.text=$('text').value; updateMeta();
 };
 $('btnClear').onclick=()=>{ $('text').value=''; S.text=''; updateMeta(); };
+
+/* 导入文本文件（.txt / .pdf / .md） */
+$('btnImport').onclick=()=>$('textFile').click();
+$('textFile').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value='';
+  if(!f) return;
+  $('btnImport').disabled=true;
+  try{
+    if(/\.pdf$/i.test(f.name)) await importPdf(f);
+    else await importTxt(f);
+  }catch(err){
+    toast('导入失败：'+err.message);
+  }finally{
+    $('btnImport').disabled=false;
+  }
+};
+
+async function importTxt(f){
+  const buf=await f.arrayBuffer();
+  let text='';
+  try{ text=new TextDecoder('utf-8',{fatal:true}).decode(buf); }
+  catch(e){ text=new TextDecoder('gbk').decode(buf); }
+  $('text').value=text; S.text=text; updateMeta();
+  toast(`已导入 ${text.length} 字 · 约 ${splitSentences(text).length} 句`);
+}
+
+async function importPdf(f){
+  const buf=await f.arrayBuffer();
+  let pdfjs=window.pdfjsLib;
+  if(!pdfjs){
+    const mod=await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs');
+    pdfjs=mod.default;
+    pdfjs.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+    window.pdfjsLib=pdfjs;
+  }
+  const doc=await pdfjs.getDocument({data:buf}).promise;
+  let out='';
+  for(let p=1;p<=doc.numPages;p++){
+    const page=await doc.getPage(p);
+    const tc=await page.getTextContent();
+    out+=tc.items.map(it=>it.str+(it.hasEOL?'\n':' ')).join('');
+    out+='\n';
+  }
+  if(out.trim().length<20) throw new Error('未能提取文字（可能是扫描版 PDF，无文字层）');
+  $('text').value=out; S.text=out; updateMeta();
+  toast(`已导入 PDF（${doc.numPages} 页 · ${out.length} 字 · 约 ${splitSentences(out).length} 句）`);
+}
 $('vSearch').addEventListener('input', e=>{ S.q=e.target.value; renderVoices(); });
 $('strength').oninput=e=>{ S.strength=+e.target.value; $('sVal').textContent=S.strength.toFixed(2); };
 $('rate').oninput=e=>{ S.rate=+e.target.value; $('rVal').textContent=S.rate.toFixed(2)+'×'; };
