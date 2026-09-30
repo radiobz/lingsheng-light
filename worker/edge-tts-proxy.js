@@ -7,7 +7,7 @@
 //       4. 把域名发给助手，由助手配置到页面 EDGE_PROXY 并推送上线
 // 说明：免费版每天 10 万次请求，个人使用完全够；无需信用卡。
 
-import { connect } from 'cloudflare:workers';
+import { connect } from 'cloudflare:sockets';
 
 const EDGE_VERSION = '130.0.2849.68';
 
