@@ -336,24 +336,31 @@ function splitSentences(text){
   return parts.map(p=>p.trim()).filter(p=>p.length>0);
 }
 
-/* ========== 6. 合成引擎（浏览器直连微软 Edge TTS） ========== */
+/* ========== 6. 合成引擎（Edge TTS 新协议 v2026.09 实测版） ========== */
 const EDGE_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
-// Cloudflare Worker 代理（在线合成被风控时启用）：留空则直连微软端点
-let EDGE_PROXY = 'https://lingsheng-proxy.zhs-xd.workers.dev/ws';
+const EDGE_VER = '143.0.3650.75'; // 与 edge-tts 7.2.8 一致（实测有效）
+// Cloudflare Worker 代理（直连被风控时启用）：留空则浏览器直连微软端点（新协议签名放 query，家用网络通常可直接合成）
+let EDGE_PROXY = '';
 
-function findAudioHeaderEnd(buf){
-  // 查找 "Path: audio" 之后第一个 \r\n\r\n 的位置，其后为音频二进制
-  const s = new TextDecoder('latin1').decode(buf.subarray(0, Math.min(buf.length, 8192)));
-  let i = s.indexOf('Path: audio');
-  if (i < 0) return 0;
-  const j = s.indexOf('\r\n\r\n', i);
-  if (j < 0) return 0;
-  return j + 4;
+// Sec-MS-GEC 签名：Windows 文件时间(1601)+5分钟对齐+拼接 TOKEN，SHA-256 大写 hex
+async function secMsGec(){
+  const t = (BigInt(Math.floor(Date.now()/1000)) + 11644473600n) / 300n * 300n * 10000000n;
+  const raw = `${t}${EDGE_TOKEN}`;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();
+}
+// Edge 时间戳格式（JS Date.toString 样式，UTC）：Wed Sep 30 2026 03:00:00 GMT+0000 (Coordinated Universal Time)
+function edgeTs(){
+  const d = new Date(), pad = n=>String(n).padStart(2,'0');
+  const wd = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+  return `${wd} ${mo} ${pad(d.getUTCDate())} ${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} GMT+0000 (Coordinated Universal Time)`;
 }
 
-function synthChunk(text, voiceId, rate, pitch, volume){
+async function synthChunk(text, voiceId, rate, pitch, volume){
   const requestId = uuid();
-  const qs = `TrustedClientToken=${EDGE_TOKEN}&ConnectionId=${requestId}`;
+  const gec = await secMsGec();
+  const qs = `TrustedClientToken=${EDGE_TOKEN}&ConnectionId=${requestId}&Sec-MS-GEC=${gec}&Sec-MS-GEC-Version=1-${EDGE_VER}`;
   const wsUrl = EDGE_PROXY
     ? EDGE_PROXY + (EDGE_PROXY.includes('?') ? '&' : '?') + qs
     : `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?${qs}`;
@@ -365,10 +372,11 @@ function synthChunk(text, voiceId, rate, pitch, volume){
     let settled = false, done = false;
     const kill = setTimeout(()=>{ if(!settled){ settled=true; try{ws.close();}catch(e){} reject(new Error('连接超时，请检查网络后重试')); } }, 30000);
     ws.onopen = ()=>{
-      const cfg = {context:{synthesis:{audio:{metadataOptions:{sentenceBoundaryEnabled:false,wordBoundaryEnabled:true},outputFormat:'audio-24khz-48kbitrate-mono-mp3'}}}};
-      ws.send(`X-RequestId:${requestId}\r\nContent-Type:application/json\r\nPath:speech.config\r\n\r\n`+JSON.stringify(cfg));
-      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='${esc(voiceId)}'><prosody pitch='${pitch}Hz' rate='${rate}%' volume='${volume}%'>${esc(text)}</prosody></voice></speak>`;
-      ws.send(`X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n`+ssml);
+      const ts = edgeTs();
+      const cfg = {context:{synthesis:{audio:{metadataoptions:{sentenceBoundaryEnabled:false,wordBoundaryEnabled:true},outputFormat:'audio-24khz-48kbitrate-mono-mp3'}}}};
+      ws.send(`X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n`+JSON.stringify(cfg)+'\r\n');
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='${esc(voiceId)}'><prosody pitch='${pitch}Hz' rate='${rate}%' volume='${volume}%'>${esc(text)}</prosody></voice></speak>`;
+      ws.send(`X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}Z\r\nPath:ssml\r\n\r\n`+ssml);
     };
     ws.onmessage = async ev => {
       if (settled) return;
@@ -389,8 +397,9 @@ function synthChunk(text, voiceId, rate, pitch, volume){
       if (ev.data instanceof Blob){
         try{
           const buf = new Uint8Array(await ev.data.arrayBuffer());
-          const h = findAudioHeaderEnd(buf);
-          if (h < buf.length) audioParts.push(buf.subarray(h));
+          // 前 2 字节大端 = 文本头长度，其后为音频数据（edge-tts 7.2.8 解析方式）
+          const hl = (buf[0]<<8)|buf[1];
+          if (hl > 0 && buf.length > hl + 2) audioParts.push(buf.subarray(2 + hl));
         }catch(e){}
       }
     };
